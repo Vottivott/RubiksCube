@@ -57,9 +57,8 @@
     var pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
-new THREE.RGBELoader()
-  .setDataType(THREE.UnsignedByteType)
-  .load('studio_small_03_1k.hdr', function (texture) {
+new THREE.EXRLoader()
+  .load('studio_small_03_1k.exr', function (texture) {
     var envMap = pmremGenerator.fromEquirectangular(texture).texture;
     scene.environment = envMap;
     texture.dispose();
@@ -68,6 +67,7 @@ new THREE.RGBELoader()
     // Start rendering after environment map is loaded
     animate();
   });
+
 
 
 
