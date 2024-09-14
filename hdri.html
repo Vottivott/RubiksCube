@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Realistic 3D Rubik's Cube</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <!-- Include Three.js -->
+  <script src="https://unpkg.com/three@0.136.0/build/three.min.js"></script>
+  <!-- Include OrbitControls.js -->
+  <script src="https://unpkg.com/three@0.136.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- Include RoundedBoxGeometry.js -->
+  <script src="https://unpkg.com/three@0.136.0/examples/js/geometries/RoundedBoxGeometry.js"></script>
+  <!-- Include RGBELoader.js -->
+  <script src="https://unpkg.com/three@0.136.0/examples/js/loaders/RGBELoader.js"></script>
+  <!-- Include EXRLoader.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.136.0/examples/js/loaders/EXRLoader.js"></script>
+  <!-- Main Script -->
+  <script>
+    // Scene, Camera, Renderer setup
+    var scene = new THREE.Scene();
+
+    var camera = new THREE.PerspectiveCamera(
+      60, window.innerWidth / window.innerHeight, 0.1, 1000
+    );
+    camera.position.set(8, 8, 8);
+
+    var renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true; // Enable shadow mapping
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.physicallyCorrectLights = true; // Enable physically correct lighting
+    document.body.appendChild(renderer.domElement);
+
+    // OrbitControls for mouse interaction
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.1;
+
+    // Variables for interactivity
+    var raycaster = new THREE.Raycaster();
+    var mouse = new THREE.Vector2();
+    var selectedCubelet = null;
+    var isDragging = false;
+    var rotationAxis = null;
+    var rotating = false;
+    var cubelets = [];
+
+    // Load HDRI Environment Map
+    var pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+
+new THREE.EXRLoader()
+  .load('studio_small_09_4k.exr', function (texture) {
+    var envMap = pmremGenerator.fromEquirectangular(texture).texture;
+    scene.environment = envMap;
+    texture.dispose();
+    pmremGenerator.dispose();
+
+    // Start rendering after environment map is loaded
+    animate();
+  });
+
+
+
+
+    // Function to create a single cubelet with black borders and colored stickers
+    function createCubelet(x, y, z) {
+      var size = 0.95;
+      var radius = 0.08; // Rounded edge radius
+      var cubeletGroup = new THREE.Group();
+
+      // Sticker parameters
+      var stickerSize = size * 0.9;
+      var stickerThickness = radius * 1.6; // Thickness adjusted as per your parameters
+      var stickerRadius = radius * 20; // Increased radius for stickers
+      var epsilon = 0.01; // Small offset to prevent z-fighting
+      var stickerOffset = (size / 2) - (stickerThickness / 2) + epsilon; // Adjusted for correct positioning
+
+      // Cubelet body (black)
+      var bodyGeometry = new THREE.RoundedBoxGeometry(size, size, size, 5, radius);
+      var bodyMaterial = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        roughness: 0.0,//0.4,
+        metalness: 1.0 // Increased metalness for better reflections
+      });
+      var bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
+      bodyMesh.castShadow = true;
+      bodyMesh.receiveShadow = true;
+      cubeletGroup.add(bodyMesh);
+
+      // Define colors for each face
+      var faceColors = [];
+      faceColors[0] = x === 1 ? 0xff0000 : null; // Right - Red
+      faceColors[1] = x === -1 ? 0xffa500 : null; // Left - Orange
+      faceColors[2] = y === 1 ? 0x00ff00 : null; // Top - Green
+      faceColors[3] = y === -1 ? 0x0000ff : null; // Bottom - Blue
+      faceColors[4] = z === 1 ? 0xffff00 : null; // Front - Yellow
+      faceColors[5] = z === -1 ? 0xffffff : null; // Back - White
+
+      // Create stickers with RoundedBoxGeometry
+      for (var i = 0; i < 6; i++) {
+        if (faceColors[i] !== null) {
+          var stickerGeometry;
+          var stickerMesh;
+          var stickerMaterial = new THREE.MeshStandardMaterial({
+            color: faceColors[i],
+            roughness: 0.05,//0.2,
+            metalness: 0.0,//1.0,//0.4
+          });
+
+          switch (i) {
+            case 0: // Right (+X)
+              stickerGeometry = new THREE.RoundedBoxGeometry(
+                stickerThickness,
+                stickerSize,
+                stickerSize,
+                5,
+                stickerRadius
+              );
+              stickerMesh = new THREE.Mesh(stickerGeometry, stickerMaterial);
+              stickerMesh.position.set(stickerOffset, 0, 0);
+              // No rotation needed
+              break;
+            case 1: // Left (-X)
+              stickerGeometry = new THREE.RoundedBoxGeometry(
+                stickerThickness,
+                stickerSize,
+                stickerSize,
+                5,
+                stickerRadius
+              );
+              stickerMesh = new THREE.Mesh(stickerGeometry, stickerMaterial);
+              stickerMesh.position.set(-stickerOffset, 0, 0);
+              // Rotate around Y by PI to face -X
+              stickerMesh.rotation.y = Math.PI;
+              break;
+            case 2: // Top (+Y)
+              stickerGeometry = new THREE.RoundedBoxGeometry(
+                stickerSize,
+                stickerThickness,
+                stickerSize,
+                5,
+                stickerRadius
+              );
+              stickerMesh = new THREE.Mesh(stickerGeometry, stickerMaterial);
+              stickerMesh.position.set(0, stickerOffset, 0);
+              // No rotation needed
+              break;
+            case 3: // Bottom (-Y)
+              stickerGeometry = new THREE.RoundedBoxGeometry(
+                stickerSize,
+                stickerThickness,
+                stickerSize,
+                5,
+                stickerRadius
+              );
+              stickerMesh = new THREE.Mesh(stickerGeometry, stickerMaterial);
+              stickerMesh.position.set(0, -stickerOffset, 0);
+              // Rotate around X by PI to face -Y
+              stickerMesh.rotation.x = Math.PI;
+              break;
+            case 4: // Front (+Z)
+              stickerGeometry = new THREE.RoundedBoxGeometry(
+                stickerSize,
+                stickerSize,
+                stickerThickness,
+                5,
+                stickerRadius
+              );
+              stickerMesh = new THREE.Mesh(stickerGeometry, stickerMaterial);
+              stickerMesh.position.set(0, 0, stickerOffset);
+              // No rotation needed
+              break;
+            case 5: // Back (-Z)
+              stickerGeometry = new THREE.RoundedBoxGeometry(
+                stickerSize,
+                stickerSize,
+                stickerThickness,
+                5,
+                stickerRadius
+              );
+              stickerMesh = new THREE.Mesh(stickerGeometry, stickerMaterial);
+              stickerMesh.position.set(0, 0, -stickerOffset);
+              // Rotate around Y by PI to face -Z
+              stickerMesh.rotation.y = Math.PI;
+              break;
+          }
+          stickerMesh.castShadow = true;
+          stickerMesh.receiveShadow = true;
+          cubeletGroup.add(stickerMesh);
+        }
+      }
+
+      cubeletGroup.position.set(x, y, z);
+      cubeletGroup.userData.initialPosition = cubeletGroup.position.clone();
+      cubeletGroup.userData.initialRotation = cubeletGroup.rotation.clone();
+      cubelets.push(cubeletGroup);
+      scene.add(cubeletGroup);
+    }
+
+    // Create the Rubik's Cube
+    for (var x = -1; x <= 1; x++) {
+      for (var y = -1; y <= 1; y++) {
+        for (var z = -1; z <= 1; z++) {
+          if (x !== 0 || y !== 0 || z !== 0) {
+            createCubelet(x, y, z);
+          }
+        }
+      }
+    }
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', function () {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    });
+
+    // Event listeners
+    renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+    renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+    renderer.domElement.addEventListener('mouseup', onMouseUp, false);
+
+    var startPoint = new THREE.Vector2();
+    var movePoint = new THREE.Vector2();
+    var selectedNormal = null;
+
+    function onMouseDown(event) {
+      if (rotating) return;
+      isDragging = true;
+      startPoint.set(event.clientX, event.clientY);
+      mouse.x = (event.clientX / renderer.domElement.clientWidth) * 2 - 1;
+      mouse.y = -(event.clientY / renderer.domElement.clientHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      var intersects = raycaster.intersectObjects(cubelets, true);
+      if (intersects.length > 0) {
+        selectedCubelet = intersects[0].object;
+        // Traverse up to the cubelet group
+        while (!selectedCubelet.userData.initialPosition && selectedCubelet.parent) {
+          selectedCubelet = selectedCubelet.parent;
+        }
+        // Get the face normal
+        selectedNormal = intersects[0].face.normal.clone();
+        selectedNormal.applyQuaternion(selectedCubelet.getWorldQuaternion(new THREE.Quaternion()));
+        event.stopPropagation(); // Prevent event from reaching OrbitControls
+      } else {
+        selectedCubelet = null;
+      }
+    }
+
+    function onMouseMove(event) {
+      if (!isDragging || rotating) return;
+      movePoint.set(event.clientX, event.clientY);
+      if (selectedCubelet) {
+        event.stopPropagation(); // Prevent OrbitControls from handling this event
+      }
+    }
+
+    function onMouseUp(event) {
+      if (!isDragging || rotating) {
+        isDragging = false;
+        selectedCubelet = null;
+        return;
+      }
+
+      isDragging = false;
+      var dx = movePoint.x - startPoint.x;
+      var dy = movePoint.y - startPoint.y;
+
+      if (!selectedCubelet || (Math.abs(dx) < 5 && Math.abs(dy) < 5)) {
+        selectedCubelet = null;
+        return;
+      }
+
+      event.stopPropagation(); // Prevent OrbitControls from handling this event
+
+      // Determine drag direction
+      var dragVector = new THREE.Vector3(dx, -dy, 0).normalize();
+
+      // Determine rotation axis using cross product of face normal and drag vector
+      rotationAxis = new THREE.Vector3().crossVectors(selectedNormal, dragVector).normalize();
+      rotationAxis.round();
+
+      // Adjust rotation axis to align with world axes
+      if (Math.abs(rotationAxis.x) > 0.5) rotationAxis.set(Math.sign(rotationAxis.x), 0, 0);
+      else if (Math.abs(rotationAxis.y) > 0.5) rotationAxis.set(0, Math.sign(rotationAxis.y), 0);
+      else if (Math.abs(rotationAxis.z) > 0.5) rotationAxis.set(0, 0, Math.sign(rotationAxis.z));
+      else {
+        selectedCubelet = null;
+        return;
+      }
+
+      // Determine layer
+      var layerCubelets = [];
+      var layerValue;
+      var threshold = 0.2; // Slightly increased threshold for precision
+
+      if (rotationAxis.x !== 0) {
+        layerValue = Math.round(selectedCubelet.position.x * 10) / 10;
+        cubelets.forEach(function(cubelet) {
+          if (Math.abs(cubelet.position.x - layerValue) < threshold) {
+            layerCubelets.push(cubelet);
+          }
+        });
+      } else if (rotationAxis.y !== 0) {
+        layerValue = Math.round(selectedCubelet.position.y * 10) / 10;
+        cubelets.forEach(function(cubelet) {
+          if (Math.abs(cubelet.position.y - layerValue) < threshold) {
+            layerCubelets.push(cubelet);
+          }
+        });
+      } else if (rotationAxis.z !== 0) {
+        layerValue = Math.round(selectedCubelet.position.z * 10) / 10;
+        cubelets.forEach(function(cubelet) {
+          if (Math.abs(cubelet.position.z - layerValue) < threshold) {
+            layerCubelets.push(cubelet);
+          }
+        });
+      }
+
+      // Create a rotation group and add layer cubelets
+      var rotationGroup = new THREE.Group();
+      scene.add(rotationGroup);
+
+      layerCubelets.forEach(function(cubelet) {
+        rotationGroup.add(cubelet);
+      });
+
+      rotating = true;
+      var rotationAngle = Math.PI / 2;
+      var currentRotation = 0;
+      var rotationSpeed = Math.PI / 100; // Adjust rotation speed as desired
+
+      var direction = (dx + dy) > 0 ? 1 : -1;
+
+      function rotateLayer() {
+        if (!rotating) return;
+        var deltaRotation = rotationSpeed * direction;
+        currentRotation += Math.abs(deltaRotation);
+        rotationGroup.rotateOnAxis(rotationAxis, deltaRotation);
+        if (currentRotation >= rotationAngle) {
+          var overRotation = currentRotation - rotationAngle;
+          rotationGroup.rotateOnAxis(rotationAxis, -overRotation * direction);
+          // Update cubelets' positions and rotations
+          layerCubelets.forEach(function(cubelet) {
+            cubelet.updateMatrixWorld();
+            // Detach cubelets from rotationGroup and reattach to scene
+            scene.attach(cubelet);
+            // Round positions to nearest tenth
+            cubelet.position.set(
+              Math.round(cubelet.position.x * 10) / 10,
+              Math.round(cubelet.position.y * 10) / 10,
+              Math.round(cubelet.position.z * 10) / 10
+            );
+            // Normalize rotations to multiples of 90 degrees
+            cubelet.rotation.set(
+              Math.round(cubelet.rotation.x / (Math.PI / 2)) * (Math.PI / 2),
+              Math.round(cubelet.rotation.y / (Math.PI / 2)) * (Math.PI / 2),
+              Math.round(cubelet.rotation.z / (Math.PI / 2)) * (Math.PI / 2)
+            );
+            cubelet.updateMatrixWorld(true); // Update matrices
+          });
+          // Remove rotationGroup
+          scene.remove(rotationGroup);
+          rotating = false;
+          selectedCubelet = null;
+          // Schedule the next move
+          setTimeout(performRandomMove, 500); // Adjust delay as desired
+        } else {
+          requestAnimationFrame(rotateLayer);
+        }
+      }
+
+      rotateLayer();
+    }
+
+    // Start random moves
+    performRandomMove();
+
+    function performRandomMove() {
+      if (rotating) {
+        setTimeout(performRandomMove, 100); // Wait and try again
+        return;
+      }
+
+      // Randomly select axis: 0 for x, 1 for y, 2 for z
+      var axisOptions = ['x', 'y', 'z'];
+      var axisIndex = Math.floor(Math.random() * 3);
+      var axis = axisOptions[axisIndex];
+
+      // Randomly select layer value: -1, 0, 1
+      var layerValues = [-1, 0, 1];
+      var layerValue = layerValues[Math.floor(Math.random() * 3)];
+
+      // Randomly select direction: 1 or -1
+      var direction = Math.random() < 0.5 ? 1 : -1;
+
+      // Determine rotation axis vector
+      rotationAxis = new THREE.Vector3();
+      if (axis === 'x') {
+        rotationAxis.set(1, 0, 0);
+      } else if (axis === 'y') {
+        rotationAxis.set(0, 1, 0);
+      } else if (axis === 'z') {
+        rotationAxis.set(0, 0, 1);
+      }
+
+      // Determine layer cubelets
+      var layerCubelets = [];
+      var threshold = 0.2; // Slightly increased threshold for precision
+
+      cubelets.forEach(function(cubelet) {
+        if (Math.abs(cubelet.position[axis] - layerValue) < threshold) {
+          layerCubelets.push(cubelet);
+        }
+      });
+
+      // Create a rotation group and add layer cubelets
+      var rotationGroup = new THREE.Group();
+      scene.add(rotationGroup);
+
+      layerCubelets.forEach(function(cubelet) {
+        rotationGroup.add(cubelet);
+      });
+
+      rotating = true;
+      var rotationAngle = Math.PI / 2;
+      var currentRotation = 0;
+      var rotationSpeed = Math.PI / 100; // Adjust rotation speed as desired
+
+      function rotateLayer() {
+        if (!rotating) return;
+        var deltaRotation = rotationSpeed * direction;
+        currentRotation += Math.abs(deltaRotation);
+        rotationGroup.rotateOnAxis(rotationAxis, deltaRotation);
+        if (currentRotation >= rotationAngle) {
+          var overRotation = currentRotation - rotationAngle;
+          rotationGroup.rotateOnAxis(rotationAxis, -overRotation * direction);
+          // Update cubelets' positions and rotations
+          layerCubelets.forEach(function(cubelet) {
+            cubelet.updateMatrixWorld();
+            // Detach cubelets from rotationGroup and reattach to scene
+            scene.attach(cubelet);
+            // Round positions to nearest tenth
+            cubelet.position.set(
+              Math.round(cubelet.position.x * 10) / 10,
+              Math.round(cubelet.position.y * 10) / 10,
+              Math.round(cubelet.position.z * 10) / 10
+            );
+            // Normalize rotations to multiples of 90 degrees
+            cubelet.rotation.set(
+              Math.round(cubelet.rotation.x / (Math.PI / 2)) * (Math.PI / 2),
+              Math.round(cubelet.rotation.y / (Math.PI / 2)) * (Math.PI / 2),
+              Math.round(cubelet.rotation.z / (Math.PI / 2)) * (Math.PI / 2)
+            );
+            cubelet.updateMatrixWorld(true); // Update matrices
+          });
+          // Remove rotationGroup
+          scene.remove(rotationGroup);
+          rotating = false;
+          // Schedule the next move
+          setTimeout(performRandomMove, 500); // Adjust delay as desired
+        } else {
+          requestAnimationFrame(rotateLayer);
+        }
+      }
+
+      rotateLayer();
+    }
+  </script>
+</body>
+</html>
