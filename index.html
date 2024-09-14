@@ -58,7 +58,7 @@
     pmremGenerator.compileEquirectangularShader();
 
 new THREE.EXRLoader()
-  .load('studio_small_03_1k.exr', function (texture) {
+  .load('studio_small_09_2k.exr', function (texture) {
     var envMap = pmremGenerator.fromEquirectangular(texture).texture;
     scene.environment = envMap;
     texture.dispose();
@@ -88,8 +88,8 @@ new THREE.EXRLoader()
       var bodyGeometry = new THREE.RoundedBoxGeometry(size, size, size, 5, radius);
       var bodyMaterial = new THREE.MeshStandardMaterial({
         color: 0x000000,
-        roughness: 0.4,
-        metalness: 0.7 // Increased metalness for better reflections
+        roughness: 0.0,//0.4,
+        metalness: 1.0 // Increased metalness for better reflections
       });
       var bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial);
       bodyMesh.castShadow = true;
@@ -112,8 +112,8 @@ new THREE.EXRLoader()
           var stickerMesh;
           var stickerMaterial = new THREE.MeshStandardMaterial({
             color: faceColors[i],
-            roughness: 0.2,
-            metalness: 0.4
+            roughness: 0.05,//0.2,
+            metalness: 0.0,//1.0,//0.4
           });
 
           switch (i) {
